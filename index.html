@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alexa Wake Word — Model Analysis</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Outfit:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #080c14;
+    --bg2:      #0d1320;
+    --bg3:      #111827;
+    --border:   #1e293b;
+    --cyan:     #22d3ee;
+    --amber:    #f59e0b;
+    --rose:     #fb7185;
+    --green:    #4ade80;
+    --purple:   #a78bfa;
+    --text:     #e2e8f0;
+    --muted:    #64748b;
+    --lr:       #38bdf8;
+    --rf:       #4ade80;
+    --svm:      #fb7185;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ───────────────────────────────────── */
+  header {
+    position: relative;
+    min-height: 340px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 24px 50px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, #0c2040 0%, var(--bg) 70%);
+  }
+  header canvas#wave {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    opacity: .35;
+    pointer-events: none;
+  }
+  .header-badge {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    background: rgba(34,211,238,.1);
+    border: 1px solid rgba(34,211,238,.3);
+    padding: 5px 16px;
+    border-radius: 999px;
+    margin-bottom: 22px;
+    position: relative;
+  }
+  header h1 {
+    font-weight: 900;
+    font-size: clamp(2rem, 5vw, 3.8rem);
+    line-height: 1.08;
+    text-align: center;
+    letter-spacing: -.02em;
+    position: relative;
+  }
+  header h1 span { color: var(--cyan); }
+  header p.sub {
+    margin-top: 14px;
+    font-size: 1rem;
+    color: var(--muted);
+    text-align: center;
+    max-width: 580px;
+    position: relative;
+  }
+  .model-pills {
+    display: flex; gap: 10px; margin-top: 28px; flex-wrap: wrap; justify-content: center;
+    position: relative;
+  }
+  .pill {
+    font-size: 12px; font-weight: 600; letter-spacing: .05em;
+    padding: 5px 16px; border-radius: 999px; border: 1px solid;
+  }
+  .pill.lr  { color: var(--lr);  border-color: var(--lr);  background: rgba(56,189,248,.1); }
+  .pill.rf  { color: var(--rf);  border-color: var(--rf);  background: rgba(74,222,128,.1); }
+  .pill.svm { color: var(--svm); border-color: var(--svm); background: rgba(251,113,133,.1); }
+
+  /* ── LAYOUT ───────────────────────────────────── */
+  main { max-width: 1280px; margin: 0 auto; padding: 60px 24px 100px; }
+
+  section { margin-bottom: 72px; }
+  .section-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--amber);
+    margin-bottom: 8px;
+  }
+  .section-title {
+    font-size: 1.6rem; font-weight: 700; margin-bottom: 32px;
+    letter-spacing: -.02em;
+  }
+
+  /* ── METRIC SCORECARDS ────────────────────────── */
+  .scorecard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 800px) { .scorecard-grid { grid-template-columns: 1fr; } }
+  .scorecard {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s, border-color .2s;
+  }
+  .scorecard:hover { transform: translateY(-3px); }
+  .scorecard.lr  { border-top: 3px solid var(--lr);  }
+  .scorecard.rf  { border-top: 3px solid var(--rf);  }
+  .scorecard.svm { border-top: 3px solid var(--svm); }
+  .scorecard::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% -20%, rgba(255,255,255,.03), transparent);
+    pointer-events: none;
+  }
+  .sc-model {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .scorecard.lr  .sc-model { color: var(--lr);  }
+  .scorecard.rf  .sc-model { color: var(--rf);  }
+  .scorecard.svm .sc-model { color: var(--svm); }
+  .sc-type { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
+  .sc-metrics { display: flex; flex-direction: column; gap: 12px; }
+  .sc-metric-row {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sc-metric-name { font-size: 13px; color: var(--muted); }
+  .sc-metric-val  { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; }
+  .sc-metric-bar {
+    width: 100%; height: 4px;
+    background: var(--border);
+    border-radius: 2px; margin-top: 4px;
+    overflow: hidden;
+  }
+  .sc-metric-fill {
+    height: 100%; border-radius: 2px;
+    transition: width 1.2s cubic-bezier(.4,0,.2,1);
+  }
+  .scorecard.lr  .sc-metric-fill { background: var(--lr);  }
+  .scorecard.rf  .sc-metric-fill { background: var(--rf);  }
+  .scorecard.svm .sc-metric-fill { background: var(--svm); }
+  .sc-winner {
+    display: inline-block;
+    font-size: 10px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase;
+    background: rgba(245,158,11,.15);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,.3);
+    border-radius: 999px;
+    padding: 2px 10px; margin-top: 18px;
+  }
+
+  /* ── CHART PANELS ─────────────────────────────── */
+  .chart-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+  }
+  .chart-title {
+    font-size: 14px; font-weight: 600; color: var(--text);
+    margin-bottom: 20px;
+  }
+  .chart-wrap { position: relative; }
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* ── CONFUSION MATRICES ──────────────────────── */
+  .cm-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .cm-grid { grid-template-columns: 1fr; } }
+  .cm-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+  }
+  .cm-label {
+    font-size: 12px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; margin-bottom: 16px; text-align: center;
+  }
+  .cm-label.lr  { color: var(--lr);  }
+  .cm-label.rf  { color: var(--rf);  }
+  .cm-label.svm { color: var(--svm); }
+  .cm-table { width: 100%; border-collapse: collapse; }
+  .cm-table td {
+    width: 50%; aspect-ratio: 1;
+    text-align: center; vertical-align: middle;
+    border-radius: 8px; font-size: 1.6rem; font-weight: 700;
+    font-family: 'Space Mono', monospace;
+    padding: 12px;
+  }
+  .cm-table td small {
+    display: block; font-size: 10px; font-weight: 400;
+    letter-spacing: .08em; text-transform: uppercase;
+    font-family: 'Outfit', sans-serif; color: inherit; opacity: .7;
+  }
+  .cm-tn { background: rgba(74,222,128,.15);  color: var(--green); }
+  .cm-fp { background: rgba(251,113,133,.15); color: var(--rose);  }
+  .cm-fn { background: rgba(251,113,133,.15); color: var(--rose);  }
+  .cm-tp { background: rgba(56,189,248,.15);  color: var(--lr);   }
+  .cm-axis {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; letter-spacing: .1em; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 6px; gap: 6px;
+  }
+  .cm-axis-v {
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-size: 10px; letter-spacing: .1em; color: var(--muted);
+    text-transform: uppercase; margin-right: 8px;
+    transform: rotate(180deg);
+  }
+  .cm-inner { display: flex; }
+
+  /* ── SUMMARY TABLE ───────────────────────────── */
+  .table-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  table.summary { width: 100%; border-collapse: collapse; }
+  table.summary thead th {
+    background: var(--bg3);
+    padding: 14px 20px;
+    text-align: left; font-size: 12px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  table.summary thead th:first-child { color: var(--text); }
+  table.summary tbody tr { border-bottom: 1px solid var(--border); }
+  table.summary tbody tr:last-child { border-bottom: none; }
+  table.summary tbody tr:hover td { background: rgba(255,255,255,.02); }
+  table.summary tbody td {
+    padding: 13px 20px; font-size: 13px;
+    font-family: 'Space Mono', monospace;
+  }
+  table.summary tbody td:first-child {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 500; color: var(--text);
+  }
+  .best { color: var(--amber); font-weight: 700; }
+  .col-lr  { color: var(--lr);  }
+  .col-rf  { color: var(--rf);  }
+  .col-svm { color: var(--svm); }
+
+  /* ── FOOTER ──────────────────────────────────── */
+  footer {
+    text-align: center; padding: 40px 24px;
+    font-size: 12px; color: var(--muted);
+    border-top: 1px solid var(--border);
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* ── ANIMATE IN ──────────────────────────────── */
+  .fade-up {
+    opacity: 0; transform: translateY(24px);
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .fade-up.visible { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <canvas id="wave"></canvas>
+  <div class="header-badge">Alexa Wake Word Detection · ML Benchmark</div>
+  <h1>Three Algorithms.<br><span>One Wake Word.</span></h1>
+  <p class="sub">Comparing Logistic Regression, Random Forest, and SVM on Alexa keyword spotting using 80-dimensional MFCC features extracted from 442 audio clips.</p>
+  <div class="model-pills">
+    <span class="pill lr">Logistic Regression</span>
+    <span class="pill rf">Random Forest</span>
+    <span class="pill svm">SVM · RBF Kernel</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- SCORECARDS -->
+  <section class="fade-up">
+    <div class="section-label">Model Overview</div>
+    <div class="section-title">Per-Model Performance</div>
+    <div class="scorecard-grid">
+
+      <!-- LR -->
+      <div class="scorecard lr">
+        <div class="sc-model">Logistic Regression</div>
+        <div class="sc-type">Linear · Parametric · L2 Regularised (C=0.01)</div>
+        <div class="sc-metrics">
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Accuracy</span>
+              <span class="sc-metric-val">78.65%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:78.65%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Precision</span>
+              <span class="sc-metric-val">72.73%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:72.73%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Recall</span>
+              <span class="sc-metric-val">90.91%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:90.91%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">F1-Score</span>
+              <span class="sc-metric-val">80.81%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:80.81%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">AUC-ROC</span>
+              <span class="sc-metric-val">0.8510</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:85.10%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">CV Accuracy</span>
+              <span class="sc-metric-val">72.49% ±5.4</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:72.49%"></div></div>
+          </div>
+        </div>
+        <span class="sc-winner">🏆 Highest Test Accuracy</span>
+      </div>
+
+      <!-- RF -->
+      <div class="scorecard rf">
+        <div class="sc-model">Random Forest</div>
+        <div class="sc-type">Ensemble · Bagging · 100 Trees · max_depth=8</div>
+        <div class="sc-metrics">
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Accuracy</span>
+              <span class="sc-metric-val">76.40%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:76.40%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Precision</span>
+              <span class="sc-metric-val">72.55%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:72.55%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Recall</span>
+              <span class="sc-metric-val">84.09%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:84.09%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">F1-Score</span>
+              <span class="sc-metric-val">77.89%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:77.89%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">AUC-ROC</span>
+              <span class="sc-metric-val">0.8556</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:85.56%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">CV Accuracy</span>
+              <span class="sc-metric-val">79.28% ±6.6</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:79.28%"></div></div>
+          </div>
+        </div>
+        <span class="sc-winner">🏆 Best Cross-Val Accuracy</span>
+      </div>
+
+      <!-- SVM -->
+      <div class="scorecard svm">
+        <div class="sc-model">SVM · RBF Kernel</div>
+        <div class="sc-type">Margin-based · Kernel Trick · C=0.5 (Soft Margin)</div>
+        <div class="sc-metrics">
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Accuracy</span>
+              <span class="sc-metric-val">75.28%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:75.28%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Precision</span>
+              <span class="sc-metric-val">67.19%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:67.19%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">Recall</span>
+              <span class="sc-metric-val">97.73%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:97.73%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">F1-Score</span>
+              <span class="sc-metric-val">79.63%</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:79.63%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">AUC-ROC</span>
+              <span class="sc-metric-val">0.8899</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:88.99%"></div></div>
+          </div>
+          <div>
+            <div class="sc-metric-row">
+              <span class="sc-metric-name">CV Accuracy</span>
+              <span class="sc-metric-val">69.95% ±5.6</span>
+            </div>
+            <div class="sc-metric-bar"><div class="sc-metric-fill" style="width:69.95%"></div></div>
+          </div>
+        </div>
+        <span class="sc-winner">🏆 Highest AUC & Recall</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CHARTS -->
+  <section class="fade-up">
+    <div class="section-label">Visual Analysis</div>
+    <div class="section-title">Metric Comparisons</div>
+    <div class="two-col" style="margin-bottom:20px">
+      <div class="chart-panel">
+        <div class="chart-title">All Metrics — Side-by-Side</div>
+        <div class="chart-wrap" style="height:300px">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">Radar — Multidimensional Profile</div>
+        <div class="chart-wrap" style="height:300px">
+          <canvas id="radarChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="chart-panel">
+        <div class="chart-title">ROC Curves (approximated from AUC)</div>
+        <div class="chart-wrap" style="height:300px">
+          <canvas id="rocChart"></canvas>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">Precision vs Recall Tradeoff</div>
+        <div class="chart-wrap" style="height:300px">
+          <canvas id="prChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONFUSION MATRICES -->
+  <section class="fade-up">
+    <div class="section-label">Classification Detail</div>
+    <div class="section-title">Confusion Matrices</div>
+    <div class="cm-grid">
+
+      <!-- LR CM -->
+      <div class="cm-card">
+        <div class="cm-label lr">Logistic Regression</div>
+        <div class="cm-axis">← Predicted →</div>
+        <div class="cm-inner">
+          <div class="cm-axis-v">← Actual →</div>
+          <div style="flex:1">
+            <table class="cm-table">
+              <tr>
+                <td class="cm-tn">30<small>True Neg</small></td>
+                <td class="cm-fp">15<small>False Pos</small></td>
+              </tr>
+              <tr>
+                <td class="cm-fn">4<small>False Neg</small></td>
+                <td class="cm-tp">40<small>True Pos</small></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12px;color:var(--muted);line-height:1.7">
+          High recall (91%) — very few missed Alexa detections. 15 false positives (non-Alexa classified as Alexa).
+        </div>
+      </div>
+
+      <!-- RF CM -->
+      <div class="cm-card">
+        <div class="cm-label rf">Random Forest</div>
+        <div class="cm-axis">← Predicted →</div>
+        <div class="cm-inner">
+          <div class="cm-axis-v">← Actual →</div>
+          <div style="flex:1">
+            <table class="cm-table">
+              <tr>
+                <td class="cm-tn">31<small>True Neg</small></td>
+                <td class="cm-fp">14<small>False Pos</small></td>
+              </tr>
+              <tr>
+                <td class="cm-fn">7<small>False Neg</small></td>
+                <td class="cm-tp">37<small>True Pos</small></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12px;color:var(--muted);line-height:1.7">
+          Most balanced model. 7 missed Alexa detections vs 14 false alarms. Best overall CV stability.
+        </div>
+      </div>
+
+      <!-- SVM CM -->
+      <div class="cm-card">
+        <div class="cm-label svm">SVM · RBF Kernel</div>
+        <div class="cm-axis">← Predicted →</div>
+        <div class="cm-inner">
+          <div class="cm-axis-v">← Actual →</div>
+          <div style="flex:1">
+            <table class="cm-table">
+              <tr>
+                <td class="cm-tn">24<small>True Neg</small></td>
+                <td class="cm-fp">21<small>False Pos</small></td>
+              </tr>
+              <tr>
+                <td class="cm-fn">1<small>False Neg</small></td>
+                <td class="cm-tp">43<small>True Pos</small></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div style="margin-top:14px;font-size:12px;color:var(--muted);line-height:1.7">
+          Extremely high recall (98%) — only 1 missed Alexa. However 21 false positives (high false alarm rate).
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- SUMMARY TABLE -->
+  <section class="fade-up">
+    <div class="section-label">Complete Comparison</div>
+    <div class="section-title">Full Metrics Table</div>
+    <div class="table-wrap">
+      <table class="summary">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="col-lr">Logistic Regression</th>
+            <th class="col-rf">Random Forest</th>
+            <th class="col-svm">SVM (RBF)</th>
+            <th>Winner</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Test Accuracy</td>
+            <td class="col-lr best">78.65%</td>
+            <td class="col-rf">76.40%</td>
+            <td class="col-svm">75.28%</td>
+            <td style="color:var(--lr)">LR</td>
+          </tr>
+          <tr>
+            <td>CV Accuracy (5-fold)</td>
+            <td class="col-lr">72.49% ±5.43%</td>
+            <td class="col-rf best">79.28% ±6.64%</td>
+            <td class="col-svm">69.95% ±5.59%</td>
+            <td style="color:var(--rf)">RF</td>
+          </tr>
+          <tr>
+            <td>Precision (Alexa class)</td>
+            <td class="col-lr best">72.73%</td>
+            <td class="col-rf">72.55%</td>
+            <td class="col-svm">67.19%</td>
+            <td style="color:var(--lr)">LR</td>
+          </tr>
+          <tr>
+            <td>Recall (Alexa class)</td>
+            <td class="col-lr">90.91%</td>
+            <td class="col-rf">84.09%</td>
+            <td class="col-svm best">97.73%</td>
+            <td style="color:var(--svm)">SVM</td>
+          </tr>
+          <tr>
+            <td>F1-Score (Alexa class)</td>
+            <td class="col-lr best">80.81%</td>
+            <td class="col-rf">77.89%</td>
+            <td class="col-svm">79.63%</td>
+            <td style="color:var(--lr)">LR</td>
+          </tr>
+          <tr>
+            <td>AUC-ROC</td>
+            <td class="col-lr">0.8510</td>
+            <td class="col-rf">0.8556</td>
+            <td class="col-svm best">0.8899</td>
+            <td style="color:var(--svm)">SVM</td>
+          </tr>
+          <tr>
+            <td>True Positives (Alexa)</td>
+            <td class="col-lr">40 / 44</td>
+            <td class="col-rf">37 / 44</td>
+            <td class="col-svm best">43 / 44</td>
+            <td style="color:var(--svm)">SVM</td>
+          </tr>
+          <tr>
+            <td>False Positives</td>
+            <td class="col-lr">15</td>
+            <td class="col-rf best">14</td>
+            <td class="col-svm">21</td>
+            <td style="color:var(--rf)">RF</td>
+          </tr>
+          <tr>
+            <td>False Negatives</td>
+            <td class="col-lr">4</td>
+            <td class="col-rf">7</td>
+            <td class="col-svm best">1</td>
+            <td style="color:var(--svm)">SVM</td>
+          </tr>
+          <tr>
+            <td>Training Samples</td>
+            <td colspan="3" style="text-align:center;color:var(--muted)">353 (80%) — 177 Alexa + 176 Not-Alexa</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Test Samples</td>
+            <td colspan="3" style="text-align:center;color:var(--muted)">89 (20%) — 44 Alexa + 45 Not-Alexa</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Features</td>
+            <td colspan="3" style="text-align:center;color:var(--muted)">80-dim MFCC (40 mean + 40 std) · 16kHz · 1s clips</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- TAKEAWAYS -->
+  <section class="fade-up">
+    <div class="section-label">Interpretation</div>
+    <div class="section-title">Key Takeaways</div>
+    <div class="two-col" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="chart-panel" style="border-top:3px solid var(--lr)">
+        <div style="font-size:13px;font-weight:700;color:var(--lr);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">Logistic Regression</div>
+        <p style="font-size:13px;color:var(--muted);line-height:1.8">Best test accuracy (78.65%) and F1-score (80.81%). Strong recall with fewer false negatives than RF. Simple and interpretable — good baseline for production if latency matters.</p>
+      </div>
+      <div class="chart-panel" style="border-top:3px solid var(--rf)">
+        <div style="font-size:13px;font-weight:700;color:var(--rf);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">Random Forest</div>
+        <p style="font-size:13px;color:var(--muted);line-height:1.8">Best cross-validated accuracy (79.28%) indicating stronger generalization. Most balanced false positive/negative trade-off. Ensemble strength reduces variance despite small dataset.</p>
+      </div>
+      <div class="chart-panel" style="border-top:3px solid var(--svm)">
+        <div style="font-size:13px;font-weight:700;color:var(--svm);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">SVM · RBF Kernel</div>
+        <p style="font-size:13px;color:var(--muted);line-height:1.8">Highest AUC (0.89) and recall (97.73%) — only 1 missed Alexa in 44. Ideal when missing the wake word is unacceptable, at the cost of more false alarms (21 false positives).</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Alexa Wake Word Detection · MFCC Features · Logistic Regression · Random Forest · SVM · 442 Samples · 80 Features
+</footer>
+
+<script>
+// ── Animated Header Wave ──────────────────────────
+(function(){
+  const c = document.getElementById('wave');
+  const ctx = c.getContext('2d');
+  let W, H, t = 0;
+  function resize() { W = c.width = c.offsetWidth; H = c.height = c.offsetHeight; }
+  window.addEventListener('resize', resize); resize();
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    const lines = [
+      { amp:28, freq:.012, speed:.018, y:.5,  color:'rgba(34,211,238,0.6)',  lw:1.5 },
+      { amp:18, freq:.018, speed:.025, y:.42, color:'rgba(56,189,248,0.4)',  lw:1 },
+      { amp:14, freq:.022, speed:.012, y:.58, color:'rgba(167,139,250,0.35)', lw:1 },
+    ];
+    lines.forEach(l => {
+      ctx.beginPath();
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = l.lw;
+      for(let x=0;x<=W;x++){
+        const y = H*l.y + Math.sin(x*l.freq + t*l.speed*60) * l.amp
+                        + Math.sin(x*l.freq*1.7 + t*l.speed*40) * l.amp*.4;
+        x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    });
+    t++; requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Chart.js Defaults ────────────────────────────
+Chart.defaults.color = '#64748b';
+Chart.defaults.font.family = "'Outfit', sans-serif";
+
+const LR_C  = '#38bdf8';
+const RF_C  = '#4ade80';
+const SVM_C = '#fb7185';
+
+// ── Bar Chart ────────────────────────────────────
+new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Accuracy', 'CV Acc', 'Precision', 'Recall', 'F1', 'AUC'],
+    datasets: [
+      { label: 'Logistic Regression', backgroundColor: LR_C+'cc',
+        data: [78.65, 72.49, 72.73, 90.91, 80.81, 85.10] },
+      { label: 'Random Forest', backgroundColor: RF_C+'cc',
+        data: [76.40, 79.28, 72.55, 84.09, 77.89, 85.56] },
+      { label: 'SVM (RBF)', backgroundColor: SVM_C+'cc',
+        data: [75.28, 69.95, 67.19, 97.73, 79.63, 88.99] },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } },
+    scales: {
+      x: { grid: { color: '#1e293b' }, ticks: { font: { size: 10 } } },
+      y: { grid: { color: '#1e293b' }, min: 60, max: 100,
+           ticks: { callback: v => v + '%', font: { size: 10 } } }
+    }
+  }
+});
+
+// ── Radar Chart ──────────────────────────────────
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['Accuracy', 'CV Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC'],
+    datasets: [
+      { label: 'Logistic Regression',
+        data: [78.65, 72.49, 72.73, 90.91, 80.81, 85.10],
+        borderColor: LR_C, backgroundColor: LR_C+'22', pointBackgroundColor: LR_C },
+      { label: 'Random Forest',
+        data: [76.40, 79.28, 72.55, 84.09, 77.89, 85.56],
+        borderColor: RF_C, backgroundColor: RF_C+'22', pointBackgroundColor: RF_C },
+      { label: 'SVM (RBF)',
+        data: [75.28, 69.95, 67.19, 97.73, 79.63, 88.99],
+        borderColor: SVM_C, backgroundColor: SVM_C+'22', pointBackgroundColor: SVM_C },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } },
+    scales: {
+      r: {
+        min: 60, max: 100,
+        grid: { color: '#1e293b' },
+        angleLines: { color: '#1e293b' },
+        pointLabels: { font: { size: 10 }, color: '#94a3b8' },
+        ticks: { display: false }
+      }
+    }
+  }
+});
+
+// ── ROC Curve (binormal approximation) ───────────
+function rocFromAUC(auc, n=50) {
+  // Binormal model: TPR = Φ(a + Φ⁻¹(FPR)) where a derived from AUC
+  // AUC = Φ(a/√2) → a = √2 * Φ⁻¹(AUC)
+  // Simple numeric probit
+  function probit(p) {
+    // rational approximation
+    if(p <= 0) return -6; if(p >= 1) return 6;
+    const c = [2.515517,0.802853,0.010328];
+    const d = [1.432788,0.189269,0.001308];
+    const t = Math.sqrt(-2*Math.log(p < .5 ? p : 1-p));
+    const x = t - (c[0]+c[1]*t+c[2]*t*t)/(1+d[0]*t+d[1]*t*t+d[2]*t*t*t);
+    return p < .5 ? -x : x;
+  }
+  function phi(x) {
+    return 0.5*(1+erf(x/Math.sqrt(2)));
+  }
+  function erf(x) {
+    const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    const sign = x<0?-1:1; x=Math.abs(x);
+    const t=1/(1+p*x);
+    return sign*(1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x));
+  }
+  const a = Math.sqrt(2) * probit(auc);
+  const pts = [];
+  for(let i=0;i<=n;i++){
+    const fpr = i/n;
+    const tpr = phi(a + probit(fpr));
+    pts.push({x: parseFloat(fpr.toFixed(3)), y: parseFloat(Math.min(1, Math.max(0, tpr)).toFixed(3))});
+  }
+  return pts;
+}
+
+new Chart(document.getElementById('rocChart'), {
+  type: 'scatter',
+  data: {
+    datasets: [
+      { label: 'Logistic Regression (AUC=0.851)', data: rocFromAUC(.851),
+        borderColor: LR_C, backgroundColor: 'transparent', showLine: true, pointRadius: 0 },
+      { label: 'Random Forest (AUC=0.856)', data: rocFromAUC(.856),
+        borderColor: RF_C, backgroundColor: 'transparent', showLine: true, pointRadius: 0 },
+      { label: 'SVM RBF (AUC=0.890)', data: rocFromAUC(.890),
+        borderColor: SVM_C, backgroundColor: 'transparent', showLine: true, pointRadius: 0 },
+      { label: 'Chance', data: [{x:0,y:0},{x:1,y:1}],
+        borderColor: '#334155', backgroundColor: 'transparent', showLine: true,
+        pointRadius: 0, borderDash: [4,4] },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } },
+    scales: {
+      x: { grid:{color:'#1e293b'}, min:0, max:1,
+           title:{display:true,text:'False Positive Rate',font:{size:11}} },
+      y: { grid:{color:'#1e293b'}, min:0, max:1,
+           title:{display:true,text:'True Positive Rate',font:{size:11}} }
+    }
+  }
+});
+
+// ── Precision vs Recall Bubble ────────────────────
+new Chart(document.getElementById('prChart'), {
+  type: 'bubble',
+  data: {
+    datasets: [
+      { label: 'Logistic Regression', backgroundColor: LR_C+'99', borderColor: LR_C,
+        data: [{ x: 72.73, y: 90.91, r: 14 }] },
+      { label: 'Random Forest', backgroundColor: RF_C+'99', borderColor: RF_C,
+        data: [{ x: 72.55, y: 84.09, r: 12 }] },
+      { label: 'SVM (RBF)', backgroundColor: SVM_C+'99', borderColor: SVM_C,
+        data: [{ x: 67.19, y: 97.73, r: 16 }] },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { boxWidth: 10, font: { size: 10 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const d = ctx.raw;
+            return `${ctx.dataset.label} — P: ${d.x}%, R: ${d.y}%`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid:{color:'#1e293b'}, min: 60, max: 100,
+           title:{display:true,text:'Precision (%)',font:{size:11}} },
+      y: { grid:{color:'#1e293b'}, min: 75, max: 100,
+           title:{display:true,text:'Recall (%)',font:{size:11}} }
+    }
+  }
+});
+
+// ── Scroll Fade-In ───────────────────────────────
+const obs = new IntersectionObserver(entries =>
+  entries.forEach(e => { if(e.isIntersecting) e.target.classList.add('visible'); }),
+  { threshold: .1 }
+);
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+</script>
+</body>
+</html>
